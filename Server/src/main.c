@@ -163,8 +163,10 @@ int main(int argc, char **argv)
                     if (len < 0) {
                         printf("Failed to send response to client");
                         close_fd = true;
+                        free(response_buffer);
                         break;
                     }
+                    free(response_buffer);
                 }
 
                 if (close_fd) {
@@ -194,5 +196,6 @@ int main(int argc, char **argv)
         }
     }
 
+    freeaddrinfo(candidates);
     exit(EXIT_SUCCESS);
 }
