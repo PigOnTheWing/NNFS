@@ -3,6 +3,8 @@
 
 #include "constants.h"
 
+#define REQUEST_MAX_SIZE sizeof(request)
+
 typedef enum {
     CONNECT,
 } operation;

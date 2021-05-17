@@ -3,6 +3,6 @@
 
 #include <stddef.h>
 
-const size_t MAX_PAYLOAD_LENGTH = 512;
+#define MAX_PAYLOAD_LENGTH 512
 
 #endif //NNFS_CONSTANTS_H

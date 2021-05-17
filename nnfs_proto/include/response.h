@@ -3,9 +3,12 @@
 
 #include "constants.h"
 
+#define RESPONSE_MAX_SIZE sizeof(response)
+
 typedef enum {
     OP_OK,
     OP_FAILED,
+    OP_NOTFOUND,
 } response_code;
 
 typedef struct {

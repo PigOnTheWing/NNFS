@@ -3,7 +3,7 @@
 
 #include "../include/response_encoder.h"
 
-static const size_t HEADER_SIZE = sizeof(response_header);
+#define HEADER_SIZE sizeof(response_header)
 
 typedef union {
     response_header header;

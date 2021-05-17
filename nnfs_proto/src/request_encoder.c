@@ -3,7 +3,7 @@
 
 #include "../include/request_encoder.h"
 
-static const size_t HEADER_SIZE = sizeof(request_header);
+#define HEADER_SIZE sizeof(request_header)
 
 typedef union  {
     request_header header;
