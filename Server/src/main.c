@@ -58,7 +58,7 @@ int main(int argc, char **argv)
             exit(EXIT_FAILURE);
         }
 
-        if (ioctl(socket_fd, FIONBIO, &non_blocking)) {
+        if (ioctl(socket_fd, FIONBIO, (char *) &non_blocking)) {
             printf("Failed to set a socket to be non-blocking\n");
             close(socket_fd);
             exit(EXIT_FAILURE);
@@ -118,6 +118,12 @@ int main(int argc, char **argv)
                             printf("Failed to accept a connection\n");
                             kill_server = true;
                         }
+                        break;
+                    }
+
+                    if (ioctl(new_fd, FIONBIO, (char *) &non_blocking)) {
+                        printf("Failed to set a socket to be non-blocking\n");
+                        close(new_fd);
                         break;
                     }
 
@@ -183,9 +189,9 @@ int main(int argc, char **argv)
                     for (j = i; j < fds_index - 1; ++j) {
                         fds[j] = fds[j + 1];
                     }
+                    --i;
+                    --fds_index;
                 }
-                --i;
-                --fds_index;
             }
         }
     }
