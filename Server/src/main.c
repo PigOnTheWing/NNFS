@@ -4,10 +4,10 @@
 #include <stdbool.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <netdb.h>
 #include <errno.h>
 #include <unistd.h>
-#include <fcntl.h>
 
 #include <request_encoder.h>
 #include <response_encoder.h>
@@ -17,14 +17,14 @@ static const nfds_t MAX_FDS = 128;
 
 int main(int argc, char **argv)
 {
-    int socket_fd = -1, reuse = 1, timeout = 5 * 60 * 1000, status, i, j, len;
+    int socket_fd = -1, reuse = 1, non_blocking = 1, timeout = 5 * 60 * 1000, status = -1, i, j, len;
     char *colon_ptr, *host, *port;
     bool close_fd = false, compress = false, kill_server = false;
     struct addrinfo hints, *candidates, *candidate;
     struct pollfd fds[MAX_FDS];
     int new_fd, fds_size, fds_index = 1;
     unsigned char request_buffer[REQUEST_MAX_SIZE];
-    unsigned char response_buffer[RESPONSE_MAX_SIZE];
+    unsigned char *response_buffer;
     size_t buf_len;
     request req;
     response resp;
@@ -47,25 +47,25 @@ int main(int argc, char **argv)
     }
 
     for (candidate = candidates; candidate; candidate = candidate->ai_next) {
-        socket_fd = socket(candidate->ai_family, candidate->ai_socktype, 0);
+        socket_fd = socket(candidate->ai_family, candidate->ai_socktype, candidate->ai_protocol);
         if (socket_fd < 0) {
             continue;
         }
 
         if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse))) {
-            printf("Failed to set socket options");
+            printf("Failed to set socket options\n");
             close(socket_fd);
             exit(EXIT_FAILURE);
         }
 
-        if (fcntl(socket_fd, F_SETFD, O_NONBLOCK)) {
-            printf("Failed to set a socket to be non-blocking");
+        if (ioctl(socket_fd, FIONBIO, &non_blocking)) {
+            printf("Failed to set a socket to be non-blocking\n");
             close(socket_fd);
             exit(EXIT_FAILURE);
         }
 
         if (bind(socket_fd, candidate->ai_addr, candidate->ai_addrlen)) {
-            printf("Failed to bind socket to address");
+            printf("Failed to bind socket to address\n");
             close(socket_fd);
             exit(EXIT_FAILURE);
         }
@@ -74,7 +74,7 @@ int main(int argc, char **argv)
     }
 
     if (listen(socket_fd, BACKLOG)) {
-        printf("Failed to listen for incoming connections");
+        printf("Failed to listen for incoming connections\n");
         close(socket_fd);
         exit(EXIT_FAILURE);
     }
@@ -83,16 +83,16 @@ int main(int argc, char **argv)
     fds[0].events = POLLIN;
 
     while (!kill_server) {
-        printf("Awaiting connections...");
+        printf("Awaiting connections...\n");
 
-        status = poll(fds, MAX_FDS, timeout);
+        status = poll(fds, fds_index, timeout);
         if (status < 0) {
-            printf("Failed to wait for connections");
+            printf("Failed to wait for connections\n");
             break;
         }
 
         if (status == 0) {
-            printf("Timed out");
+            printf("Timed out\n");
             break;
         }
 
@@ -109,19 +109,19 @@ int main(int argc, char **argv)
             }
 
             if (fds[i].fd == socket_fd) {
-                printf("Accepting new connections");
+                printf("Accepting new connection\n");
 
                 do {
                     new_fd = accept(socket_fd, NULL, NULL);
                     if (new_fd < 0) {
-                        if (new_fd != EWOULDBLOCK) {
-                            printf("Failed to accept a connection");
+                        if (errno != EWOULDBLOCK) {
+                            printf("Failed to accept a connection\n");
                             kill_server = true;
-                            break;
                         }
+                        break;
                     }
 
-                    printf("Accepted connection %d", new_fd);
+                    printf("Accepted connection %d\n", new_fd);
                     fds[fds_index].fd = new_fd;
                     fds[fds_index].events = POLLIN;
                     ++fds_index;
@@ -130,8 +130,8 @@ int main(int argc, char **argv)
                 while (true) {
                     len = recv(fds[i].fd, request_buffer, sizeof(request_buffer), 0);
                     if (len < 0) {
-                        if (len != EWOULDBLOCK) {
-                            printf("Failed to receive data from client");
+                        if (errno != EWOULDBLOCK) {
+                            printf("Failed to receive data from client\n");
                             close_fd = true;
                             break;
                         }
@@ -139,7 +139,7 @@ int main(int argc, char **argv)
                     }
 
                     if (len == 0) {
-                        printf("Client closed the connection");
+                        printf("Client closed the connection\n");
                         close_fd = true;
                         break;
                     }
@@ -158,10 +158,10 @@ int main(int argc, char **argv)
                         }
                     }
 
-                    buf_len = encode_pesponse(&resp, (unsigned char **) &response_buffer);
+                    buf_len = encode_pesponse(&resp, &response_buffer);
                     len = send(fds[i].fd, response_buffer, buf_len, 0);
                     if (len < 0) {
-                        printf("Failed to send response to client");
+                        printf("Failed to send response to client\n");
                         close_fd = true;
                         free(response_buffer);
                         break;
