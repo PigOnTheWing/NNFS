@@ -4,10 +4,10 @@
 #include <stdbool.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
-#include <sys/ioctl.h>
 #include <netdb.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include <request_encoder.h>
 #include <response_encoder.h>
@@ -17,7 +17,7 @@ static const nfds_t MAX_FDS = 128;
 
 int main(int argc, char **argv)
 {
-    int socket_fd = -1, reuse = 1, non_blocking = 1, timeout = 5 * 60 * 1000, status = -1, i, j, len;
+    int socket_fd = -1, reuse = 1, timeout = 5 * 60 * 1000, status = -1, i, j, len;
     char *colon_ptr, *host, *port;
     bool close_fd = false, compress = false, kill_server = false;
     struct addrinfo hints, *candidates, *candidate;
@@ -58,7 +58,7 @@ int main(int argc, char **argv)
             exit(EXIT_FAILURE);
         }
 
-        if (ioctl(socket_fd, FIONBIO, (char *) &non_blocking)) {
+        if (fcntl(socket_fd, F_SETFL, O_NONBLOCK)) {
             printf("Failed to set a socket to be non-blocking\n");
             close(socket_fd);
             exit(EXIT_FAILURE);
@@ -83,7 +83,7 @@ int main(int argc, char **argv)
     fds[0].events = POLLIN;
 
     while (!kill_server) {
-        printf("Awaiting connections...\n");
+        printf("Awaiting commands...\n");
 
         status = poll(fds, fds_index, timeout);
         if (status < 0) {
@@ -102,14 +102,14 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            if (fds[i].revents != POLLIN) {
-                perror(strerror(fds[i].revents));
-                kill_server = true;
-                break;
-            }
-
             if (fds[i].fd == socket_fd) {
-                printf("Accepting new connection\n");
+                if (fds[i].revents != POLLIN) {
+                    perror(strerror(fds[i].revents));
+                    kill_server = true;
+                    break;
+                }
+
+                printf("Accepting new connections\n");
 
                 do {
                     new_fd = accept(socket_fd, NULL, NULL);
@@ -121,19 +121,26 @@ int main(int argc, char **argv)
                         break;
                     }
 
-                    if (ioctl(new_fd, FIONBIO, (char *) &non_blocking)) {
+                    if (fcntl(new_fd, F_SETFL, O_NONBLOCK)) {
                         printf("Failed to set a socket to be non-blocking\n");
                         close(new_fd);
                         break;
                     }
 
-                    printf("Accepted connection %d\n", new_fd);
+                    printf("Accepted a connection, sock_fd = %d\n", new_fd);
                     fds[fds_index].fd = new_fd;
                     fds[fds_index].events = POLLIN;
                     ++fds_index;
                 } while (new_fd != -1);
             } else {
+                printf("Receiving commands from a client at socket #%d\n", fds[i].fd);
                 while (true) {
+                    if (fds[i].revents != POLLIN) {
+                        printf("Socket closed unexpectedly\n");
+                        close_fd = true;
+                        break;
+                    }
+
                     len = recv(fds[i].fd, request_buffer, sizeof(request_buffer), 0);
                     if (len < 0) {
                         if (errno != EWOULDBLOCK) {
@@ -155,11 +162,13 @@ int main(int argc, char **argv)
                         case CONNECT: {
                             resp.header.code = OP_OK;
                             resp.header.payload_len = 0;
+                            printf("Received a CONNECT request\n");
                             break;
                         }
                         default: {
                             resp.header.code = OP_NOTFOUND;
                             resp.header.payload_len = 0;
+                            printf("Received an unknown request\n");
                             break;
                         }
                     }
@@ -196,6 +205,7 @@ int main(int argc, char **argv)
         }
     }
 
+    printf("Closing open connections\n");
     for (i = 0; i < fds_index; ++i) {
         if (fds[i].fd >= 0) {
             close(fds[i].fd);
