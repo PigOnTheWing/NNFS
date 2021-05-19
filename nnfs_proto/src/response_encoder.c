@@ -10,11 +10,16 @@ typedef union {
     unsigned char header_bytes[HEADER_SIZE];
 } header_encoder, header_decoder;
 
-size_t encode_pesponse(response *r, unsigned char **packet_ptr_out)
+size_t encode_response(response *r, unsigned char **packet_ptr_out)
 {
     size_t p_len = r->header.payload_len, packet_len = HEADER_SIZE + p_len;
     header_encoder encoder = { .header = r->header };
-    unsigned char *packet_ptr = malloc(packet_len), *payload_ptr;
+    unsigned char *packet_ptr, *payload_ptr;
+
+    if ((packet_ptr = malloc(packet_len)) == NULL) {
+        *packet_ptr_out = NULL;
+        return 0;
+    }
     memcpy(packet_ptr, encoder.header_bytes, HEADER_SIZE);
 
     payload_ptr = packet_ptr + HEADER_SIZE;

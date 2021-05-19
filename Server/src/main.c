@@ -173,7 +173,7 @@ int main(int argc, char **argv)
                         }
                     }
 
-                    buf_len = encode_pesponse(&resp, &response_buffer);
+                    buf_len = encode_response(&resp, &response_buffer);
                     len = send(fds[i].fd, response_buffer, buf_len, 0);
                     if (len < 0) {
                         printf("Failed to send response to client\n");
