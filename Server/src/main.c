@@ -9,11 +9,10 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#include <request_encoder.h>
-#include <response_encoder.h>
+#include "request_dispatcher/request_dispatcher.h"
 
 static const size_t BACKLOG = 16;
-static const nfds_t MAX_FDS = 128;
+static const nfds_t MAX_FDS = MAX_SESSIONS + 1;
 
 int main(int argc, char **argv)
 {
@@ -81,6 +80,8 @@ int main(int argc, char **argv)
 
     fds[0].fd = socket_fd;
     fds[0].events = POLLIN;
+
+    init_sessions();
 
     while (!kill_server) {
         printf("Awaiting commands...\n");
@@ -158,22 +159,9 @@ int main(int argc, char **argv)
                     }
 
                     decode_request(request_buffer, &req);
-                    switch (req.header.op) {
-                        case CONNECT: {
-                            resp.header.code = OP_OK;
-                            resp.header.payload_len = 0;
-                            printf("Received a CONNECT request\n");
-                            break;
-                        }
-                        default: {
-                            resp.header.code = OP_NOTFOUND;
-                            resp.header.payload_len = 0;
-                            printf("Received an unknown request\n");
-                            break;
-                        }
-                    }
-
+                    dispatch_request(&req, &resp);
                     buf_len = encode_response(&resp, &response_buffer);
+
                     len = send(fds[i].fd, response_buffer, buf_len, 0);
                     if (len < 0) {
                         printf("Failed to send response to client\n");
@@ -211,6 +199,9 @@ int main(int argc, char **argv)
             close(fds[i].fd);
         }
     }
+
+    printf("Closing sessions");
+    close_sessions();
 
     freeaddrinfo(candidates);
     exit(EXIT_SUCCESS);
