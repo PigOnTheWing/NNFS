@@ -14,31 +14,14 @@
 static const size_t BACKLOG = 16;
 static const nfds_t MAX_FDS = MAX_SESSIONS + 1;
 
-int main(int argc, char **argv)
+int get_listening_socket(const char *host, const char *port)
 {
-    int socket_fd = -1, reuse = 1, timeout = 5 * 60 * 1000, status = -1, i, j, len;
-    char *colon_ptr, *host, *port;
-    bool close_fd = false, compress = false, kill_server = false;
+    int socket_fd, reuse = 1;
     struct addrinfo hints, *candidates, *candidate;
-    struct pollfd fds[MAX_FDS];
-    int new_fd, fds_size, fds_index = 1;
-    unsigned char request_buffer[REQUEST_MAX_SIZE];
-    unsigned char *response_buffer;
-    size_t buf_len;
-    request req;
-    response resp;
-
-    if (argc != 2 || !(colon_ptr = strchr(argv[1], ':'))) {
-        printf("Usage: %s host:port\n", argv[0]);
-        exit(EXIT_SUCCESS);
-    }
-
-    *colon_ptr = 0;
-    host = argv[1];
-    port = colon_ptr + 1;
 
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = 0;
 
     if (getaddrinfo(host, port, &hints, &candidates)) {
         printf("Failed to find suitable address");
@@ -77,6 +60,35 @@ int main(int argc, char **argv)
         close(socket_fd);
         exit(EXIT_FAILURE);
     }
+
+    freeaddrinfo(candidates);
+
+    return socket_fd;
+}
+
+int main(int argc, char **argv)
+{
+    int socket_fd, timeout = 5 * 60 * 1000, status, i, j, len;
+    char *colon_ptr, *host, *port;
+    bool close_fd = false, compress = false, kill_server = false;
+    struct pollfd fds[MAX_FDS];
+    int new_fd, fds_size, fds_index = 1;
+    unsigned char request_buffer[REQUEST_MAX_SIZE];
+    unsigned char *response_buffer;
+    size_t buf_len;
+    request req;
+    response resp;
+
+    if (argc != 2 || !(colon_ptr = strchr(argv[1], ':'))) {
+        printf("Usage: %s host:port\n", argv[0]);
+        exit(EXIT_SUCCESS);
+    }
+
+    *colon_ptr = 0;
+    host = argv[1];
+    port = colon_ptr + 1;
+
+    socket_fd = get_listening_socket(host, port);
 
     fds[0].fd = socket_fd;
     fds[0].events = POLLIN;
@@ -161,6 +173,11 @@ int main(int argc, char **argv)
                     decode_request(request_buffer, &req);
                     dispatch_request(&req, &resp);
                     buf_len = encode_response(&resp, &response_buffer);
+                    if (response_buffer == NULL) {
+                        printf("Failed to encode response\n");
+                        close_fd = true;
+                        break;
+                    }
 
                     len = send(fds[i].fd, response_buffer, buf_len, 0);
                     if (len < 0) {
@@ -203,6 +220,5 @@ int main(int argc, char **argv)
     printf("Closing sessions");
     close_sessions();
 
-    freeaddrinfo(candidates);
     exit(EXIT_SUCCESS);
 }

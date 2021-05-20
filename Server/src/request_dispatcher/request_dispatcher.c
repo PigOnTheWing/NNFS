@@ -144,6 +144,7 @@ static void handle_change_dir(const session *s, const request *req, response *re
 
     closedir(dir);
 
+    resp->header.code = OP_OK;
     finish_resp:
     resp->header.session_id = s->session_id;
     resp->header.payload_len = 0;
