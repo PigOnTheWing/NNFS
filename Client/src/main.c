@@ -4,39 +4,28 @@
 #include <string.h>
 #include <netdb.h>
 #include <unistd.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <sys/poll.h>
 
 #include <request_encoder.h>
 #include <response_encoder.h>
 
-#define MAX_COMMAND_LEN 256
+#include "command_parser/command_parser.h"
 
-int main(int argc, char **argv)
+#define MAX_COMMAND_LEN 1024
+
+static size_t session_id = 0;
+
+int get_connection_socket(char *host, char *port)
 {
-    int socket_fd, len, status, timeout = 30 * 1000, socket_err;
-    socklen_t socket_err_size = sizeof(socket_err);
-    size_t request_len, command_len;
-    char *colon_ptr, *host, *port, command_str[MAX_COMMAND_LEN], *space_ptr;
+    int socket_fd, len;
+    size_t request_len;
     unsigned char *request_buffer, response_buffer[RESPONSE_MAX_SIZE];
-    bool quit = false;
+    struct addrinfo hints, *candidates, *candidate;
     request req;
     response resp;
-    struct addrinfo hints, *candidates, *candidate;
-    struct pollfd connection_fd;
-
-    if (argc != 2 || !(colon_ptr = strchr(argv[1], ':'))) {
-        printf("Usage: %s server_host:server_port", argv[0]);
-        exit(EXIT_SUCCESS);
-    }
-
-    *colon_ptr = 0;
-    host = argv[1];
-    port = colon_ptr + 1;
 
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = 0;
 
     if (getaddrinfo(host, port, &hints, &candidates)) {
         printf("Failed to find suitable address\n");
@@ -49,105 +38,180 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (fcntl(socket_fd, F_SETFL, O_NONBLOCK)) {
-            printf("Failed to set a socket to be non-blocking\n");
-            close(socket_fd);
-            exit(EXIT_FAILURE);
-        }
-
         break;
     }
 
     if (connect(socket_fd, candidate->ai_addr, candidate->ai_addrlen)) {
-        if (errno != EINPROGRESS) {
-            goto failed_to_connect;
-        }
-
-        printf("Connecting to host...\n");
-        connection_fd.fd = socket_fd;
-        connection_fd.events = POLLOUT;
-
-        status = poll(&connection_fd, 1, timeout);
-        if (status <= 0) {
-            goto failed_to_connect;
-        }
-
-        if (getsockopt(socket_fd, SOL_SOCKET, SO_ERROR, &socket_err, &socket_err_size) || socket_err) {
-            failed_to_connect:
-            printf("Failed to connect to host\n");
-            close(socket_fd);
-            exit(EXIT_FAILURE);
-        }
-        printf("Successfully connected\n");
+        printf("Failed to connect to host\n");
+        close(socket_fd);
+        exit(EXIT_FAILURE);
     }
+
+    req.header.op = CMD_CREATE_SESSION;
+    req.header.session_id = 0;
+    req.header.payload_len = 0;
+
+    request_len = encode_request(&req, &request_buffer);
+    if (request_buffer == NULL) {
+        printf("Failed to encode request\n");
+        close(socket_fd);
+        exit(EXIT_FAILURE);
+    }
+
+    len = send(socket_fd, request_buffer, request_len, 0);
+    if (len < 0) {
+        printf("Failed to send a request\n");
+        close(socket_fd);
+        exit(EXIT_FAILURE);
+    }
+
+    free(request_buffer);
+
+    len = recv(socket_fd, response_buffer, sizeof(response_buffer), 0);
+    if (len < 0) {
+        goto failed_to_create_session;
+    }
+
+    decode_response(response_buffer, &resp);
+    if (resp.header.code != OP_OK) {
+        failed_to_create_session:
+        printf("Failed to create a session\n");
+        close(socket_fd);
+        exit(EXIT_FAILURE);
+    }
+
+    session_id = resp.header.session_id;
+    printf("Successfully connected\n");
 
     freeaddrinfo(candidates);
+    return socket_fd;
+}
 
-    while (!quit) {
-        printf(">> ");
-        fgets(command_str, sizeof(command_str), stdin); //TODO: Move command parsing to a different source file
-        command_len = strlen(command_str);
-        if (command_str[command_len - 1] == '\n') {
-            command_str[command_len - 1] = 0;
-        }
+void close_session(int socket_fd)
+{
+    size_t request_len;
+    unsigned char *request_buffer;
+    request req;
 
-        if ((space_ptr = strchr(command_str, ' '))) {
-            *space_ptr = 0;
-        }
+    req.header.op = CMD_CLOSE_SESSION;
+    req.header.session_id = session_id;
+    req.header.payload_len = 0;
 
-        if (!strcmp(command_str, "connect")) {
-            req.header.op = CONNECT;
-            req.header.payload_len = 0;
-
-            request_len = encode_request(&req, &request_buffer);
-            len = send(socket_fd, request_buffer, request_len, 0);
-            if (len < 0) {
-                printf("Failed to send a request\n");
-                continue;
-            }
-
-            free(request_buffer);
-
-            while (true) {
-                len = recv(socket_fd, response_buffer, sizeof(response_buffer), 0);
-                if (len < 0) {
-                    if (errno != EWOULDBLOCK) {
-                        printf("Failed to receive a response from server\nQuitting...\n");
-                        quit = true;
-                    }
-                    break;
-                }
-
-                if (len == 0) {
-                    printf("Server closed the connection\nQuitting...\n");
-                    quit = true;
-                    break;
-                }
-
-                decode_response(response_buffer, &resp);
-                switch (resp.header.code) {
-                    case OP_OK: {
-                        printf("Success\n");
-                        break;
-                    }
-                    case OP_NOTFOUND: {
-                        printf("Server does not support such operation\n");
-                        break;
-                    }
-                    case OP_FAILED: {
-                        printf("Failed\n");
-                        break;
-                    }
-                }
-            }
-        } else if (!strcmp(command_str, "quit")) {
-            quit = true;
-            continue;
-        } else {
-            printf("Unknown command\n");
-            continue;
-        }
+    request_len = encode_request(&req, &request_buffer);
+    if (request_buffer == NULL) {
+        return;
     }
+
+    send(socket_fd, request_buffer, request_len, 0);
+}
+
+void parse_response(const response *r)
+{
+    char payload_message[MAX_PAYLOAD_LENGTH];
+    switch (r->header.code) {
+        case OP_OK:
+            if (r->header.payload_len > 0) {
+                strncpy(payload_message, (char *)r->payload, r->header.payload_len);
+                printf("%s", payload_message);
+            }
+            printf("Success\n");
+            break;
+        case OP_FAILED:
+            printf("Operation failed\n");
+            break;
+        case OP_DEFAULT:
+            strncpy(payload_message, (char *)r->payload, r->header.payload_len);
+            printf("Current directory was set to a default directory - %s\n", payload_message);
+            break;
+        case OP_SESSION_NOTFOUND:
+            printf("Client session non existent\n");
+            break;
+        case OP_ACCESS_DENIED:
+            printf("Access denied\n");
+            break;
+        case OP_NOTFOUND:
+            printf("Host doesn't support such an operation\n");
+            break;
+    }
+}
+
+int main(int argc, char **argv)
+{
+    int socket_fd, len;
+    size_t request_len;
+    char *colon_ptr, *host, *port, command_str[MAX_COMMAND_LEN];
+    unsigned char *request_buffer, response_buffer[RESPONSE_MAX_SIZE];
+    request req;
+    response resp;
+
+    if (argc != 2 || !(colon_ptr = strchr(argv[1], ':'))) {
+        printf("Usage: %s server_host:server_port", argv[0]);
+        exit(EXIT_SUCCESS);
+    }
+
+    *colon_ptr = 0;
+    host = argv[1];
+    port = colon_ptr + 1;
+
+    socket_fd = get_connection_socket(host, port);
+
+    while (true) {
+        printf(">> ");
+        fgets(command_str, sizeof(command_str), stdin);
+        if (!strncmp(command_str, "quit", 4)) {
+            break;
+        }
+
+        if (!strncmp(command_str, "help", 4)) {
+            printf("Available commands: connect, cd, ls, quit, help\n"
+                   "\tconnect <dir> - set <dir> as a current directory. "
+                   "In case <dir> is unspecified, host will set default directory as current\n"
+                   "\tcd <dir> - change current directory to <dir>. "
+                   "<dir> can be either absolute or relative. "
+                   "In case <dir> is unspecified, host will set default directory as current\n"
+                   "\tls - list the contents of the current directory.\n"
+                   "\tquit - exit the app.\n"
+                   "\thelp - print this message.\n");
+            continue;
+        }
+
+        if (parse_command(command_str, &req)) {
+            printf("Failed to parse command\n");
+            continue;
+        }
+
+        req.header.session_id = session_id;
+
+        request_len = encode_request(&req, &request_buffer);
+        if (request_buffer == NULL) {
+            printf("Failed to allocate memory for request\nQuitting...\n");
+            break;
+        }
+
+        len = send(socket_fd, request_buffer, request_len, 0);
+        if (len < 0) {
+            printf("Failed to send a request\n");
+            continue;
+        }
+
+        free(request_buffer);
+
+        len = recv(socket_fd, response_buffer, sizeof(response_buffer), 0);
+        if (len < 0) {
+            printf("Failed to receive a response from server\nQuitting...\n");
+            break;
+        }
+
+        if (len == 0) {
+            printf("Server closed the connection\nQuitting...\n");
+            break;
+        }
+
+        decode_response(response_buffer, &resp);
+        parse_response(&resp);
+    }
+
+    close_session(socket_fd);
 
     close(socket_fd);
     exit(EXIT_SUCCESS);
