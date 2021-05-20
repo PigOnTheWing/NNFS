@@ -9,9 +9,13 @@ typedef enum {
     OP_OK,
     OP_FAILED,
     OP_NOTFOUND,
+    OP_ACCESS_DENIED,
+    OP_DEFAULT,
+    OP_SESSION_NOTFOUND,
 } response_code;
 
 typedef struct {
+    size_t session_id;
     response_code code;
     size_t payload_len;
 } response_header;

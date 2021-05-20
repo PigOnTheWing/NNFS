@@ -6,10 +6,15 @@
 #define REQUEST_MAX_SIZE sizeof(request)
 
 typedef enum {
-    CONNECT,
+    CMD_CREATE_SESSION,
+    CMD_CONNECT,
+    CMD_CHANGE_DIR,
+    CMD_LIST_CONTENTS,
+    CMD_CLOSE_SESSION,
 } operation;
 
 typedef struct {
+    size_t session_id;
     operation op;
     size_t payload_len;
 } request_header;
