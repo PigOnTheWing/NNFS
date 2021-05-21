@@ -78,6 +78,7 @@ int main(int argc, char **argv)
     size_t buf_len;
     request req;
     response resp;
+    const session *s;
 
     if (argc != 2 || !(colon_ptr = strchr(argv[1], ':'))) {
         printf("Usage: %s host:port\n", argv[0]);
@@ -140,6 +141,13 @@ int main(int argc, char **argv)
                         break;
                     }
 
+                    printf("Creating client session\n");
+                    if (!create_session(new_fd)) {
+                        printf("Failed to create client session\n");
+                        close(new_fd);
+                        break;
+                    }
+
                     printf("Accepted a connection, sock_fd = %d\n", new_fd);
                     fds[fds_index].fd = new_fd;
                     fds[fds_index].events = POLLIN;
@@ -171,7 +179,14 @@ int main(int argc, char **argv)
                     }
 
                     decode_request(request_buffer, &req);
-                    dispatch_request(&req, &resp);
+                    s = get_client_session(fds[i].fd, &req);
+                    if (s == NULL) {
+                        printf("Client session doesn't exit\n");
+                        close_fd = true;
+                        break;
+                    }
+
+                    dispatch_request(s, &req, &resp);
                     buf_len = encode_response(&resp, &response_buffer);
                     if (response_buffer == NULL) {
                         printf("Failed to encode response\n");
@@ -190,6 +205,12 @@ int main(int argc, char **argv)
                 }
 
                 if (close_fd) {
+                    if ((s = get_session_by_fd(fds[i].fd)) != NULL) {
+                        printf("Closing client session\n");
+                        close_session(s->session_id);
+                    }
+
+                    printf("Closing client connection\n");
                     close(fds[i].fd);
                     fds[i].fd = -1;
                     compress = true;

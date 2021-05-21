@@ -7,14 +7,6 @@
 
 static const char default_dir[] = "/home";
 
-static void handle_create_session(response *resp)
-{
-    size_t session_id = create_session();
-    resp->header.code = OP_OK;
-    resp->header.session_id = session_id;
-    resp->header.payload_len = 0;
-}
-
 static void handle_default_change_dir(const session *s, response *resp)
 {
     DIR *dir;
@@ -192,39 +184,40 @@ static void handle_close_session(const session *s, response *resp)
     resp->header.payload_len = 0;
 }
 
-void dispatch_request(const request *req, response *resp)
+const session *get_client_session(int client_fd, const request *req)
 {
-    const session *s;
-    switch (req->header.op) {
-        case CMD_CREATE_SESSION: handle_create_session(resp); break;
-        default: {
-            s = get_session(req->header.session_id);
-            if (s == NULL) {
-                resp->header.code = OP_SESSION_NOTFOUND;
-                resp->header.session_id = 0;
-                resp->header.payload_len = 0;
-                return;
-            }
+    if (req->header.session_id > 0) {
+        return get_session(req->header.session_id);
+    }
 
-            switch (req->header.op) {
-                case CMD_CONNECT:
-                    handle_connect(s, req, resp);
-                    break;
-                case CMD_CHANGE_DIR:
-                    handle_change_dir(s, req, resp);
-                    break;
-                case CMD_LIST_CONTENTS:
-                    handle_list_dir_contents(s, resp);
-                    break;
-                case CMD_CLOSE_SESSION:
-                    handle_close_session(s, resp);
-                    break;
-                default: {
-                    resp->header.session_id = s->session_id;
-                    resp->header.code = OP_NOTFOUND;
-                    resp->header.payload_len = 0;
-                }
-            }
+    return get_session_by_fd(client_fd);
+}
+
+void dispatch_request(const session *s, const request *req, response *resp)
+{
+    switch (req->header.op) {
+        case CMD_GET_SESSION: {
+            resp->header.code = OP_OK;
+            resp->header.session_id = s->session_id;
+            resp->header.payload_len = 0;
+            break;
+        }
+        case CMD_CONNECT:
+            handle_connect(s, req, resp);
+            break;
+        case CMD_CHANGE_DIR:
+            handle_change_dir(s, req, resp);
+            break;
+        case CMD_LIST_CONTENTS:
+            handle_list_dir_contents(s, resp);
+            break;
+        case CMD_CLOSE_SESSION:
+            handle_close_session(s, resp);
+            break;
+        default: {
+            resp->header.session_id = s->session_id;
+            resp->header.code = OP_NOTFOUND;
+            resp->header.payload_len = 0;
         }
     }
 }

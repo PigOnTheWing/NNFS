@@ -6,7 +6,7 @@
 #define REQUEST_MAX_SIZE sizeof(request)
 
 typedef enum {
-    CMD_CREATE_SESSION,
+    CMD_GET_SESSION,
     CMD_CONNECT,
     CMD_CHANGE_DIR,
     CMD_LIST_CONTENTS,

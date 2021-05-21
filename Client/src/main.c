@@ -47,7 +47,7 @@ int get_connection_socket(char *host, char *port)
         exit(EXIT_FAILURE);
     }
 
-    req.header.op = CMD_CREATE_SESSION;
+    req.header.op = CMD_GET_SESSION;
     req.header.session_id = 0;
     req.header.payload_len = 0;
 

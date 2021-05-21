@@ -8,7 +8,7 @@ static size_t sessions_index = 0;
 
 static session sessions[MAX_SESSIONS];
 
-static const session empty_session = { .session_id = 0, .curr_dir = NULL };
+static const session empty_session = { .session_id = 0, .client_fd = -1, .curr_dir = NULL };
 
 void init_sessions()
 {
@@ -18,7 +18,7 @@ void init_sessions()
     }
 }
 
-size_t create_session()
+size_t create_session(int client_id)
 {
     if (sessions_index == MAX_SESSIONS) {
         return 0;
@@ -27,6 +27,7 @@ size_t create_session()
     size_t session_id = session_id_gen++;
     session s = {
             .session_id = session_id,
+            .client_fd = client_id,
             .curr_dir = NULL
     };
 
@@ -39,6 +40,17 @@ const session *get_session(const size_t session_id)
     size_t i;
     for (i = 0; i < sessions_index; ++i) {
         if (sessions[i].session_id == session_id) {
+            return &sessions[i];
+        }
+    }
+    return NULL;
+}
+
+const session *get_session_by_fd(int client_fd)
+{
+    size_t i;
+    for (i = 0; i < sessions_index; ++i) {
+        if (sessions[i].client_fd == client_fd) {
             return &sessions[i];
         }
     }
