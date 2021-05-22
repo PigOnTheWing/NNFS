@@ -11,6 +11,8 @@ typedef enum {
     CMD_CHANGE_DIR,
     CMD_LIST_CONTENTS,
     CMD_CLOSE_SESSION,
+    CMD_READ,
+    CMD_READ_NEXT,
 } operation;
 
 typedef struct {

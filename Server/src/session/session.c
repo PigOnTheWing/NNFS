@@ -8,7 +8,7 @@ static size_t sessions_index = 0;
 
 static session sessions[MAX_SESSIONS];
 
-static const session empty_session = { .session_id = 0, .client_fd = -1, .curr_dir = NULL };
+static const session empty_session = { .session_id = 0, .client_fd = -1, .curr_dir = NULL, .fp = NULL };
 
 void init_sessions()
 {
@@ -28,7 +28,8 @@ size_t create_session(int client_id)
     session s = {
             .session_id = session_id,
             .client_fd = client_id,
-            .curr_dir = NULL
+            .curr_dir = NULL,
+            .fp = NULL,
     };
 
     sessions[sessions_index++] = s;
@@ -77,6 +78,33 @@ const session *session_change_dir(const size_t session_id, const size_t dir_len,
     return NULL;
 }
 
+const session *session_set_fp(const size_t session_id, FILE *fp)
+{
+    size_t i;
+    for (i = 0; i < sessions_index; ++i) {
+        if (sessions[i].session_id == session_id) {
+            sessions[i].fp = fp;
+            return &sessions[i];
+        }
+    }
+    return NULL;
+}
+
+const session *session_close_fp(const size_t session_id)
+{
+    size_t i;
+    for (i = 0; i < sessions_index; ++i) {
+        if (sessions[i].session_id == session_id) {
+            if (sessions[i].fp != NULL) {
+                fclose(sessions[i].fp);
+                sessions[i].fp = NULL;
+            }
+            return &sessions[i];
+        }
+    }
+    return NULL;
+}
+
 void close_session(const size_t session_id)
 {
     size_t i, j;
@@ -84,6 +112,10 @@ void close_session(const size_t session_id)
         if (sessions[i].session_id == session_id) {
             if (sessions[i].curr_dir) {
                 free(sessions[i].curr_dir);
+            }
+
+            if (sessions[i].fp != NULL) {
+                fclose(sessions[i].fp);
             }
 
             for (j = i; j < sessions_index - 1; ++j) {
@@ -101,6 +133,10 @@ void close_sessions()
     for (i = 0; i < sessions_index; ++i) {
         if (sessions[i].curr_dir) {
             free(sessions[i].curr_dir);
+        }
+
+        if (sessions[i].fp != NULL) {
+            fclose(sessions[i].fp);
         }
         sessions[i] = empty_session;
     }

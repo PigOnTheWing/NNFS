@@ -213,6 +213,7 @@ int main(int argc, char **argv)
                     printf("Closing client connection\n");
                     close(fds[i].fd);
                     fds[i].fd = -1;
+                    close_fd = false;
                     compress = true;
                 }
             }

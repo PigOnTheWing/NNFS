@@ -12,6 +12,8 @@ typedef enum {
     OP_ACCESS_DENIED,
     OP_DEFAULT,
     OP_SESSION_NOTFOUND,
+    OP_PART,
+    OP_LAST,
 } response_code;
 
 typedef struct {

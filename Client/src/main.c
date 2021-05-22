@@ -4,6 +4,7 @@
 #include <string.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include <request_encoder.h>
 #include <response_encoder.h>
@@ -135,10 +136,137 @@ void parse_response(const response *r)
     }
 }
 
+void read_from_server(int socket_fd, request *init_request, bool *quit)
+{
+    int len;
+    size_t request_len, chunks, chunk_num = 0, bytes_written;
+    char *filename;
+    bool remove_file = false;
+    unsigned char *request_buffer, response_buffer[RESPONSE_MAX_SIZE];
+    __off_t filesize;
+    FILE *fp;
+    request  req;
+    response resp;
+
+    filename = get_arg(READ_DEST);
+    if ((fp = fopen(filename, "w")) == NULL) {
+        printf("Failed to open file \"%s\"\n", filename);
+        return;
+    }
+
+    request_len = encode_request(init_request, &request_buffer);
+    if (request_buffer == NULL) {
+        printf("Failed to allocate memory for request\n");
+        fclose(fp);
+        *quit = true;
+        return;
+    }
+
+    len = send(socket_fd, request_buffer, request_len, 0);
+    if (len < 0) {
+        printf("Failed to send a request\n");
+        fclose(fp);
+        *quit = true;
+        return;
+    }
+
+    free(request_buffer);
+
+    len = recv(socket_fd, response_buffer, sizeof(response_buffer), 0);
+    if (len < 0) {
+        printf("Failed to receive a response\n");
+        fclose(fp);
+        *quit = true;
+        return;
+    }
+
+    if (len == 0) {
+        printf("Host closed the connection\n");
+        fclose(fp);
+        *quit = true;
+        return;
+    }
+
+    decode_response(response_buffer, &resp);
+    if (resp.header.code != OP_OK) {
+        printf("Operation failed\n");
+        fclose(fp);
+        return;
+    }
+
+    memcpy(&filesize, resp.payload, resp.header.payload_len);
+    chunks = filesize % MAX_PAYLOAD_LENGTH == 0
+            ? filesize / MAX_PAYLOAD_LENGTH
+            : filesize / MAX_PAYLOAD_LENGTH + 1;
+
+    req.header.op = CMD_READ_NEXT;
+    req.header.session_id = session_id;
+    req.header.payload_len = 0;
+
+    request_len = encode_request(&req, &request_buffer);
+    if (request_buffer == NULL) {
+        printf("Failed to allocate memory for request\n");
+        fclose(fp);
+        *quit = true;
+        return;
+    }
+
+    while (true) {
+        len = send(socket_fd, request_buffer, request_len, 0);
+        if (len < 0) {
+            printf("Failed to send a request\n");
+            remove_file = true;
+            break;
+        }
+
+        len = recv(socket_fd, response_buffer, sizeof(response_buffer), 0);
+        if (len < 0) {
+            printf("Failed to receive a response\n");
+            remove_file = true;
+            break;
+        }
+
+        if (len == 0) {
+            printf("Host closed the connection\n");
+            remove_file = true;
+            *quit = true;
+            break;
+        }
+
+        decode_response(response_buffer, &resp);
+        if (resp.header.code != OP_PART && resp.header.code != OP_LAST) {
+            printf("Failed to perform read\n");
+            remove_file = true;
+            break;
+        }
+
+        printf("Receiving chunk %zu of %zu\n", ++chunk_num, chunks);
+        bytes_written = fwrite(resp.payload, 1, resp.header.payload_len, fp);
+        if (bytes_written != resp.header.payload_len) {
+            printf("Failed to write to file\n");
+            remove_file = true;
+            break;
+        }
+
+        if (resp.header.code == OP_LAST) {
+            printf("Success\nAll chunks saved to \"%s\"\n", filename);
+            break;
+        }
+    }
+
+    free(request_buffer);
+    fclose(fp);
+
+    if (remove_file) {
+        remove(filename);
+    }
+}
+
 int main(int argc, char **argv)
 {
     int socket_fd, len;
     size_t request_len;
+    bool quit = false;
     char *colon_ptr, *host, *port, command_str[MAX_COMMAND_LEN];
     unsigned char *request_buffer, response_buffer[RESPONSE_MAX_SIZE];
     request req;
@@ -155,7 +283,7 @@ int main(int argc, char **argv)
 
     socket_fd = get_connection_socket(host, port);
 
-    while (true) {
+    while (!quit) {
         printf(">> ");
         fgets(command_str, sizeof(command_str), stdin);
         if (!strncmp(command_str, "quit", 4)) {
@@ -163,13 +291,14 @@ int main(int argc, char **argv)
         }
 
         if (!strncmp(command_str, "help", 4)) {
-            printf("Available commands: connect, cd, ls, quit, help\n"
+            printf("Available commands: connect, cd, ls, read, quit, help\n"
                    "\tconnect <dir> - set <dir> as a current directory. "
-                   "In case <dir> is unspecified, host will set default directory as current\n"
+                   "In case <dir> is unspecified, host will set default directory as current.\n"
                    "\tcd <dir> - change current directory to <dir>. "
                    "<dir> can be either absolute or relative. "
-                   "In case <dir> is unspecified, host will set default directory as current\n"
+                   "In case <dir> is unspecified, host will set default directory as current.\n"
                    "\tls - list the contents of the current directory.\n"
+                   "\tread <src> <dest> - read file <src> from host and save it into file <dest>.\n"
                    "\tquit - exit the app.\n"
                    "\thelp - print this message.\n");
             continue;
@@ -181,6 +310,10 @@ int main(int argc, char **argv)
         }
 
         req.header.session_id = session_id;
+        if (req.header.op == CMD_READ) {
+            read_from_server(socket_fd, &req, &quit);
+            continue;
+        }
 
         request_len = encode_request(&req, &request_buffer);
         if (request_buffer == NULL) {
