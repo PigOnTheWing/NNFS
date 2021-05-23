@@ -21,7 +21,11 @@ int get_listening_socket(const char *host, const char *port)
 
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = 0;
     hints.ai_flags = 0;
+    hints.ai_addr = NULL;
+    hints.ai_next = NULL;
+    hints.ai_canonname = NULL;
 
     if (getaddrinfo(host, port, &hints, &candidates)) {
         printf("Failed to find suitable address");

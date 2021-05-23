@@ -15,18 +15,55 @@
 
 static size_t session_id = 0;
 
-int get_connection_socket(char *host, char *port)
+int send_and_receive(int socket_fd, request *req, response *resp)
 {
-    int socket_fd, len;
+    int len;
     size_t request_len;
     unsigned char *request_buffer, response_buffer[RESPONSE_MAX_SIZE];
+
+    request_len = encode_request(req, &request_buffer);
+    if (request_buffer == NULL) {
+        printf("Failed to allocate memory for request\n");
+        return -1;
+    }
+
+    len = send(socket_fd, request_buffer, request_len, 0);
+    if (len < 0) {
+        printf("Failed to send a request\n");
+        return -1;
+    }
+
+    free(request_buffer);
+
+    len = recv(socket_fd, response_buffer, sizeof(response_buffer), 0);
+    if (len < 0) {
+        printf("Failed to receive a response\n");
+        return -1;
+    }
+
+    if (len == 0) {
+        printf("Host closed the connection\n");
+        return -1;
+    }
+
+    decode_response(response_buffer, resp);
+    return 0;
+}
+
+int get_connection_socket(char *host, char *port)
+{
+    int socket_fd, status;
     struct addrinfo hints, *candidates, *candidate;
     request req;
     response resp;
 
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = 0;
     hints.ai_flags = 0;
+    hints.ai_addr = NULL;
+    hints.ai_next = NULL;
+    hints.ai_canonname = NULL;
 
     if (getaddrinfo(host, port, &hints, &candidates)) {
         printf("Failed to find suitable address\n");
@@ -52,30 +89,13 @@ int get_connection_socket(char *host, char *port)
     req.header.session_id = 0;
     req.header.payload_len = 0;
 
-    request_len = encode_request(&req, &request_buffer);
-    if (request_buffer == NULL) {
-        printf("Failed to encode request\n");
+    status = send_and_receive(socket_fd, &req, &resp);
+    if (status) {
         close(socket_fd);
         exit(EXIT_FAILURE);
     }
 
-    len = send(socket_fd, request_buffer, request_len, 0);
-    if (len < 0) {
-        printf("Failed to send a request\n");
-        close(socket_fd);
-        exit(EXIT_FAILURE);
-    }
-
-    free(request_buffer);
-
-    len = recv(socket_fd, response_buffer, sizeof(response_buffer), 0);
-    if (len < 0) {
-        goto failed_to_create_session;
-    }
-
-    decode_response(response_buffer, &resp);
     if (resp.header.code != OP_OK) {
-        failed_to_create_session:
         printf("Failed to create a session\n");
         close(socket_fd);
         exit(EXIT_FAILURE);
@@ -136,62 +156,39 @@ void parse_response(const response *r)
     }
 }
 
-void read_from_server(int socket_fd, request *init_request, bool *quit)
+int read_from_server(int socket_fd, request *init_request)
 {
-    int len;
-    size_t request_len, chunks, chunk_num = 0, bytes_written;
+    int status;
+    size_t chunks, chunk_num = 0, bytes_written;
     char *filename;
     bool remove_file = false;
-    unsigned char *request_buffer, response_buffer[RESPONSE_MAX_SIZE];
     __off_t filesize;
     FILE *fp;
     request  req;
     response resp;
 
-    filename = get_arg(READ_DEST);
+    filename = get_arg(RW_DEST);
     if ((fp = fopen(filename, "w")) == NULL) {
         printf("Failed to open file \"%s\"\n", filename);
-        return;
+        return 0;
     }
 
-    request_len = encode_request(init_request, &request_buffer);
-    if (request_buffer == NULL) {
-        printf("Failed to allocate memory for request\n");
+    status = send_and_receive(socket_fd, init_request, &resp);
+    if (status) {
         fclose(fp);
-        *quit = true;
-        return;
+        return -1;
     }
 
-    len = send(socket_fd, request_buffer, request_len, 0);
-    if (len < 0) {
-        printf("Failed to send a request\n");
-        fclose(fp);
-        *quit = true;
-        return;
-    }
-
-    free(request_buffer);
-
-    len = recv(socket_fd, response_buffer, sizeof(response_buffer), 0);
-    if (len < 0) {
-        printf("Failed to receive a response\n");
-        fclose(fp);
-        *quit = true;
-        return;
-    }
-
-    if (len == 0) {
-        printf("Host closed the connection\n");
-        fclose(fp);
-        *quit = true;
-        return;
-    }
-
-    decode_response(response_buffer, &resp);
     if (resp.header.code != OP_OK) {
+        if (resp.header.code == OP_ACCESS_DENIED) {
+            printf("Failed to open file on remote host: Access denied\n");
+            fclose(fp);
+            return 0;
+        }
+
         printf("Operation failed\n");
         fclose(fp);
-        return;
+        return 0;
     }
 
     memcpy(&filesize, resp.payload, resp.header.payload_len);
@@ -203,37 +200,13 @@ void read_from_server(int socket_fd, request *init_request, bool *quit)
     req.header.session_id = session_id;
     req.header.payload_len = 0;
 
-    request_len = encode_request(&req, &request_buffer);
-    if (request_buffer == NULL) {
-        printf("Failed to allocate memory for request\n");
-        fclose(fp);
-        *quit = true;
-        return;
-    }
-
     while (true) {
-        len = send(socket_fd, request_buffer, request_len, 0);
-        if (len < 0) {
-            printf("Failed to send a request\n");
+        status = send_and_receive(socket_fd, &req, &resp);
+        if (status) {
             remove_file = true;
             break;
         }
 
-        len = recv(socket_fd, response_buffer, sizeof(response_buffer), 0);
-        if (len < 0) {
-            printf("Failed to receive a response\n");
-            remove_file = true;
-            break;
-        }
-
-        if (len == 0) {
-            printf("Host closed the connection\n");
-            remove_file = true;
-            *quit = true;
-            break;
-        }
-
-        decode_response(response_buffer, &resp);
         if (resp.header.code != OP_PART && resp.header.code != OP_LAST) {
             printf("Failed to perform read\n");
             remove_file = true;
@@ -254,21 +227,95 @@ void read_from_server(int socket_fd, request *init_request, bool *quit)
         }
     }
 
-    free(request_buffer);
     fclose(fp);
-
     if (remove_file) {
         remove(filename);
     }
+    return 0;
+}
+
+int write_to_server(int socket_fd, request *init_request)
+{
+    int status;
+    size_t chunks, chunk_num = 0, bytes_read;
+    char *filename;
+    bool finished = false;
+    FILE *fp;
+    struct stat file_stat;
+    request  req;
+    response resp;
+
+
+    filename = get_arg(RW_SRC);
+    if (stat(filename, &file_stat)) {
+        printf("Failed to get file stat for \"%s\"\n", filename);
+        return 0;
+    }
+
+    if ((fp = fopen(filename, "rb")) == NULL) {
+        printf("Failed to open file \"%s\"\n", filename);
+        return 0;
+    }
+
+    status = send_and_receive(socket_fd, init_request, &resp);
+    if (status) {
+        fclose(fp);
+        return -1;
+    }
+
+    if (resp.header.code != OP_OK) {
+        if (resp.header.code == OP_ACCESS_DENIED) {
+            printf("Failed to open file on remote host: Access denied\n");
+            fclose(fp);
+            return 0;
+        }
+
+        printf("Operation failed\n");
+        fclose(fp);
+        return 0;
+    }
+
+    chunks = file_stat.st_size % MAX_PAYLOAD_LENGTH == 0
+             ? file_stat.st_size / MAX_PAYLOAD_LENGTH
+             : file_stat.st_size / MAX_PAYLOAD_LENGTH + 1;
+
+    req.header.session_id = session_id;
+
+    while (!finished) {
+        bytes_read = fread(req.payload, 1, MAX_PAYLOAD_LENGTH, fp);
+        if (bytes_read != MAX_PAYLOAD_LENGTH) {
+            if (feof(fp)) {
+                req.header.op = CMD_WRITE_LAST;
+            } else {
+                req.header.op = CMD_WRITE_CANCEL;
+            }
+            finished = true;
+        } else {
+            req.header.op = CMD_WRITE_PART;
+        }
+
+        req.header.payload_len = bytes_read;
+
+        printf("Sending chunk %zu of %zu\n", ++chunk_num, chunks);
+        status = send_and_receive(socket_fd, &req, &resp);
+        if (status) {
+            break;
+        }
+
+        if (resp.header.code != OP_OK) {
+            printf("Failed to write chunk\n");
+            break;
+        }
+    }
+
+    fclose(fp);
+    return 0;
 }
 
 int main(int argc, char **argv)
 {
-    int socket_fd, len;
-    size_t request_len;
-    bool quit = false;
+    int socket_fd, status;
     char *colon_ptr, *host, *port, command_str[MAX_COMMAND_LEN];
-    unsigned char *request_buffer, response_buffer[RESPONSE_MAX_SIZE];
     request req;
     response resp;
 
@@ -283,7 +330,7 @@ int main(int argc, char **argv)
 
     socket_fd = get_connection_socket(host, port);
 
-    while (!quit) {
+    while (true) {
         printf(">> ");
         fgets(command_str, sizeof(command_str), stdin);
         if (!strncmp(command_str, "quit", 4)) {
@@ -311,36 +358,28 @@ int main(int argc, char **argv)
 
         req.header.session_id = session_id;
         if (req.header.op == CMD_READ) {
-            read_from_server(socket_fd, &req, &quit);
+            status = read_from_server(socket_fd, &req);
+            if (status) {
+                break;
+            }
+
             continue;
         }
 
-        request_len = encode_request(&req, &request_buffer);
-        if (request_buffer == NULL) {
-            printf("Failed to allocate memory for request\nQuitting...\n");
-            break;
-        }
+        if (req.header.op == CMD_WRITE) {
+            status = write_to_server(socket_fd, &req);
+            if (status) {
+                break;
+            }
 
-        len = send(socket_fd, request_buffer, request_len, 0);
-        if (len < 0) {
-            printf("Failed to send a request\n");
             continue;
         }
 
-        free(request_buffer);
-
-        len = recv(socket_fd, response_buffer, sizeof(response_buffer), 0);
-        if (len < 0) {
-            printf("Failed to receive a response from server\nQuitting...\n");
+        status = send_and_receive(socket_fd, &req, &resp);
+        if (status) {
             break;
         }
 
-        if (len == 0) {
-            printf("Server closed the connection\nQuitting...\n");
-            break;
-        }
-
-        decode_response(response_buffer, &resp);
         parse_response(&resp);
     }
 

@@ -8,7 +8,13 @@ static size_t sessions_index = 0;
 
 static session sessions[MAX_SESSIONS];
 
-static const session empty_session = { .session_id = 0, .client_fd = -1, .curr_dir = NULL, .fp = NULL };
+static const session empty_session = {
+        .session_id = 0,
+        .client_fd = -1,
+        .curr_dir = NULL,
+        .fp = NULL,
+        .rw_filename = NULL
+};
 
 void init_sessions()
 {
@@ -30,6 +36,7 @@ size_t create_session(int client_id)
             .client_fd = client_id,
             .curr_dir = NULL,
             .fp = NULL,
+            .rw_filename = NULL
     };
 
     sessions[sessions_index++] = s;
@@ -90,6 +97,18 @@ const session *session_set_fp(const size_t session_id, FILE *fp)
     return NULL;
 }
 
+const session *session_set_filename(size_t session_id, char *filename)
+{
+    size_t i;
+    for (i = 0; i < sessions_index; ++i) {
+        if (sessions[i].session_id == session_id) {
+            sessions[i].rw_filename = filename;
+            return &sessions[i];
+        }
+    }
+    return NULL;
+}
+
 const session *session_close_fp(const size_t session_id)
 {
     size_t i;
@@ -98,6 +117,11 @@ const session *session_close_fp(const size_t session_id)
             if (sessions[i].fp != NULL) {
                 fclose(sessions[i].fp);
                 sessions[i].fp = NULL;
+            }
+
+            if (sessions[i].rw_filename != NULL) {
+                free(sessions[i].rw_filename);
+                sessions[i].rw_filename = NULL;
             }
             return &sessions[i];
         }
@@ -116,6 +140,9 @@ void close_session(const size_t session_id)
 
             if (sessions[i].fp != NULL) {
                 fclose(sessions[i].fp);
+            }
+            if (sessions[i].rw_filename != NULL) {
+                free(sessions[i].rw_filename);
             }
 
             for (j = i; j < sessions_index - 1; ++j) {
@@ -137,6 +164,10 @@ void close_sessions()
 
         if (sessions[i].fp != NULL) {
             fclose(sessions[i].fp);
+        }
+
+        if (sessions[i].rw_filename != NULL) {
+            free(sessions[i].rw_filename);
         }
         sessions[i] = empty_session;
     }

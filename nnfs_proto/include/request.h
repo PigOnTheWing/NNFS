@@ -13,6 +13,10 @@ typedef enum {
     CMD_CLOSE_SESSION,
     CMD_READ,
     CMD_READ_NEXT,
+    CMD_WRITE,
+    CMD_WRITE_PART,
+    CMD_WRITE_LAST,
+    CMD_WRITE_CANCEL,
 } operation;
 
 typedef struct {

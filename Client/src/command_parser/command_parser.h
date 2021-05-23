@@ -8,8 +8,8 @@
 
 #define CD_DIR 0
 
-#define READ_SRC 0
-#define READ_DEST 1
+#define RW_SRC 0
+#define RW_DEST 1
 
 char *get_arg(size_t arg_i);
 int parse_command(char *command, request *r);
