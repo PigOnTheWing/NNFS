@@ -235,18 +235,17 @@ static void handle_read_init(const session *s, request *req, response *resp)
     }
 
     s = session_set_fp(s->session_id, fp);
+    s = session_set_filename(s->session_id, full_path);
 
     resp->header.code = OP_OK;
     resp->header.session_id = s->session_id;
     resp->header.payload_len = sizeof(file_stat.st_size);
     memcpy(resp->payload, &file_stat.st_size, sizeof(file_stat.st_size));
-    free(full_path);
     return;
 
     fail:
     resp->header.session_id = s->session_id;
     resp->header.payload_len = 0;
-    free(full_path);
 }
 
 static void handle_read_next(const session *s, response *resp)
@@ -281,6 +280,133 @@ static void handle_read_next(const session *s, response *resp)
     return;
 
     fail:
+    resp->header.session_id = s->session_id;
+    resp->header.payload_len = 0;
+}
+
+static void handle_write_init(const session *s, request *req, response *resp)
+{
+    size_t full_path_size;
+    char *full_path, *rel_path;
+    FILE *fp;
+
+    rel_path = (char *) req->payload;
+    if (rel_path[req->header.payload_len - 1] != 0) {
+        rel_path[req->header.payload_len] = 0;
+    }
+
+    if (rel_path[0] == '/') {
+        full_path_size = strlen(rel_path) + 1;
+        full_path = malloc(full_path_size);
+        if (full_path ==NULL) {
+            resp->header.code = OP_FAILED;
+            goto finish_resp;
+        }
+
+        strcpy(full_path, rel_path);
+    } else {
+        full_path_size = strlen(s->curr_dir) + 1 + strlen(rel_path) + 1;
+        full_path = malloc(full_path_size);
+        if (full_path == NULL) {
+            resp->header.code = OP_FAILED;
+            goto finish_resp;
+        }
+
+        strcpy(full_path, s->curr_dir);
+        strcat(full_path, "/");
+        strcat(full_path, rel_path);
+    }
+
+    if ((fp = fopen(full_path, "wb")) == NULL) {
+        if (errno == EACCES) {
+            resp->header.code = OP_ACCESS_DENIED;
+        } else {
+            resp->header.code = OP_FAILED;
+        }
+        goto finish_resp;
+    }
+
+    s = session_set_fp(s->session_id, fp);
+    s = session_set_filename(s->session_id, full_path);
+
+    resp->header.code = OP_OK;
+    finish_resp:
+    resp->header.session_id = s->session_id;
+    resp->header.payload_len = 0;
+}
+
+static void handle_write_next(const session *s, request *req, response *resp)
+{
+    size_t bytes_written;
+    FILE *fp;
+
+    if (s->fp == NULL) {
+        resp->header.code = OP_FAILED;
+        goto finish_resp;
+    }
+
+    fp = s->fp;
+    bytes_written = fwrite(req->payload, 1, req->header.payload_len, fp);
+    if (bytes_written != req->header.payload_len) {
+        resp->header.code = OP_FAILED;
+        goto finish_resp;
+    }
+
+    s = session_set_fp(s->session_id, fp);
+
+    resp->header.code = OP_OK;
+    finish_resp:
+    resp->header.session_id = s->session_id;
+    resp->header.payload_len = 0;
+}
+
+static void handle_write_last(const session *s, request *req, response *resp)
+{
+    size_t bytes_written;
+    FILE *fp;
+
+    if (s->fp == NULL) {
+        resp->header.code = OP_FAILED;
+        goto finish_resp;
+    }
+
+    fp = s->fp;
+    bytes_written = fwrite(req->payload, 1, req->header.payload_len, fp);
+    if (bytes_written != req->header.payload_len) {
+        resp->header.code = OP_FAILED;
+        goto finish_resp;
+    }
+
+    s = session_close_fp(s->session_id);
+    fp = NULL;
+
+    resp->header.code = OP_OK;
+    finish_resp:
+    resp->header.session_id = s->session_id;
+    resp->header.payload_len = 0;
+}
+
+static void handle_write_cancel(const session *s, response *resp)
+{
+    FILE *fp;
+
+    fp = s->fp;
+    fclose(fp);
+
+    if (remove(s->rw_filename)) {
+        if (errno == EACCES) {
+            resp->header.code = OP_ACCESS_DENIED;
+        } else {
+            resp->header.code = OP_FAILED;
+        }
+        goto finish_resp;
+    }
+
+    s = session_close_fp(s->session_id);
+    fp = NULL;
+
+    resp->header.code = OP_OK;
+    finish_resp:
     resp->header.session_id = s->session_id;
     resp->header.payload_len = 0;
 }
@@ -320,6 +446,18 @@ void dispatch_request(const session *s, request *req, response *resp)
             break;
         case CMD_READ_NEXT:
             handle_read_next(s, resp);
+            break;
+        case CMD_WRITE:
+            handle_write_init(s, req, resp);
+            break;
+        case CMD_WRITE_PART:
+            handle_write_next(s, req, resp);
+            break;
+        case CMD_WRITE_LAST:
+            handle_write_last(s, req, resp);
+            break;
+        case CMD_WRITE_CANCEL:
+            handle_write_cancel(s, resp);
             break;
         default: {
             resp->header.session_id = s->session_id;

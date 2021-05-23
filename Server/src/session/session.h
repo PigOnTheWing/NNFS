@@ -11,6 +11,7 @@ typedef struct {
     int client_fd;
     char *curr_dir;
     FILE *fp;
+    char *rw_filename;
 } session;
 
 void init_sessions();
@@ -19,6 +20,7 @@ const session *get_session(size_t session_id);
 const session *get_session_by_fd(int client_fd);
 const session *session_change_dir(size_t session_id, size_t dir_len, const char *new_dir);
 const session *session_set_fp(size_t session_id, FILE *fp);
+const session *session_set_filename(size_t session_id, char *filename);
 const session *session_close_fp(size_t session_id);
 void close_session(size_t session_id);
 void close_sessions();

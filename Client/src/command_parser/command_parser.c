@@ -17,7 +17,7 @@ char *get_arg(size_t arg_i)
     return args[arg_i];
 }
 
-static inline int make_cd_request(const operation op, char *tail, request *r)
+static int make_cd_request(const operation op, char *tail, request *r)
 {
     size_t tail_len;
     r->header.op = op;
@@ -45,16 +45,12 @@ static inline int make_ls_request(request *r)
     return 0;
 }
 
-static inline int make_read_request(char *tail, request *r)
+static int make_read_request(char *tail, request *r)
 {
     size_t from_len;
     char *space_ptr, *from, *to;
 
-    if (tail == NULL) {
-        return -1;
-    }
-
-    if ((space_ptr = strchr(tail, ' ')) == NULL) {
+    if (tail == NULL || (space_ptr = strchr(tail, ' ')) == NULL) {
         return -1;
     }
 
@@ -62,17 +58,45 @@ static inline int make_read_request(char *tail, request *r)
     from = tail;
     to = space_ptr + 1;
 
+    args[RW_SRC] = from;
+    args[RW_DEST] = to;
+
     from_len = strlen(from);
     if (from_len + 1 > MAX_PAYLOAD_LENGTH) {
         return -1;
     }
 
-    args[READ_SRC] = from;
-    args[READ_DEST] = to;
-
     r->header.op = CMD_READ;
     r->header.payload_len = from_len + 1;
     strcpy((char *) r->payload, from);
+
+    return 0;
+}
+
+static int make_write_request(char *tail, request *r)
+{
+    size_t to_len;
+    char *space_ptr, *from, *to;
+
+    if (tail == NULL || (space_ptr = strchr(tail, ' ')) == NULL) {
+        return -1;
+    }
+
+    *space_ptr = 0;
+    from = tail;
+    to = space_ptr + 1;
+
+    args[RW_SRC] = from;
+    args[RW_DEST] = to;
+
+    to_len = strlen(to);
+    if (to_len + 1 > MAX_PAYLOAD_LENGTH) {
+        return -1;
+    }
+
+    r->header.op = CMD_WRITE;
+    r->header.payload_len = to_len + 1;
+    strcpy((char *) r->payload, to);
 
     return 0;
 }
@@ -102,6 +126,8 @@ int parse_command(char *command, request *r)
         return make_cd_request(CMD_CHANGE_DIR, tail, r);
     } else if (!strcmp(command, "read")) {
         return make_read_request(tail, r);
+    } else if (!strcmp(command, "write")) {
+        return make_write_request(tail, r);
     }
 
     return -1;
