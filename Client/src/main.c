@@ -134,8 +134,9 @@ void parse_response(const response *r)
             if (r->header.payload_len > 0) {
                 strncpy(payload_message, (char *)r->payload, r->header.payload_len);
                 printf("%s", payload_message);
+            } else {
+                printf("Success\n");
             }
-            printf("Success\n");
             break;
         case OP_FAILED:
             printf("Operation failed\n");
@@ -285,18 +286,19 @@ int write_to_server(int socket_fd, request *init_request)
         bytes_read = fread(req.payload, 1, MAX_PAYLOAD_LENGTH, fp);
         if (bytes_read != MAX_PAYLOAD_LENGTH) {
             if (feof(fp)) {
+                printf("Sending last chunk\n");
                 req.header.op = CMD_WRITE_LAST;
             } else {
+                printf("Error occurred. Cancelling writing\n");
                 req.header.op = CMD_WRITE_CANCEL;
             }
             finished = true;
         } else {
+            printf("Sending chunk %zu of %zu\n", ++chunk_num, chunks);
             req.header.op = CMD_WRITE_PART;
         }
 
         req.header.payload_len = bytes_read;
-
-        printf("Sending chunk %zu of %zu\n", ++chunk_num, chunks);
         status = send_and_receive(socket_fd, &req, &resp);
         if (status) {
             break;
@@ -306,6 +308,8 @@ int write_to_server(int socket_fd, request *init_request)
             printf("Failed to write chunk\n");
             break;
         }
+
+        printf("Success\n");
     }
 
     fclose(fp);
