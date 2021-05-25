@@ -346,6 +346,7 @@ int main(int argc, char **argv)
                    "In case <dir> is unspecified, host will set default directory as current.\n"
                    "\tls - list the contents of the current directory.\n"
                    "\tread <src> <dest> - read file <src> from host and save it into file <dest>.\n"
+                   "\twrite <src> <dest> - write local file <src> to host under the name <dest>.\n"
                    "\tquit - exit the app.\n"
                    "\thelp - print this message.\n");
             continue;
