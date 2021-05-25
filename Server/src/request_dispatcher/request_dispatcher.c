@@ -349,6 +349,8 @@ static void handle_write_next(const session *s, request *req, response *resp)
     bytes_written = fwrite(req->payload, 1, req->header.payload_len, fp);
     if (bytes_written != req->header.payload_len) {
         resp->header.code = OP_FAILED;
+        s = session_close_fp(s->session_id);
+        fp = NULL;
         goto finish_resp;
     }
 
@@ -377,11 +379,11 @@ static void handle_write_last(const session *s, request *req, response *resp)
         goto finish_resp;
     }
 
+    resp->header.code = OP_OK;
+    finish_resp:
     s = session_close_fp(s->session_id);
     fp = NULL;
 
-    resp->header.code = OP_OK;
-    finish_resp:
     resp->header.session_id = s->session_id;
     resp->header.payload_len = 0;
 }
