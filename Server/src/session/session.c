@@ -4,152 +4,165 @@
 #include "session.h"
 
 static size_t session_id_gen = 1;
-static size_t sessions_index = 0;
 
-static session sessions[MAX_SESSIONS];
+static struct  {
+    size_t count;
+    session *head;
+    session *tail;
+} session_list = { .count = 0, .head = NULL, .tail = NULL };
 
-static const session empty_session = {
-        .session_id = 0,
-        .client_fd = -1,
-        .curr_dir = NULL,
-        .fp = NULL,
-        .rw_filename = NULL
-};
-
-void init_sessions(void)
+size_t create_session(int client_fd)
 {
-    size_t i;
-    for (i = 0; i < MAX_SESSIONS; ++i) {
-        sessions[i] = empty_session;
-    }
-}
+    session *s;
 
-size_t create_session(int client_id)
-{
-    if (sessions_index == MAX_SESSIONS) {
+    s = (session *) malloc(sizeof(session));
+    if (s == NULL) {
         return 0;
     }
 
-    size_t session_id = session_id_gen++;
-    session s = {
-            .session_id = session_id,
-            .client_fd = client_id,
-            .curr_dir = NULL,
-            .fp = NULL,
-            .rw_filename = NULL
-    };
+    s->session_id = session_id_gen++;
+    s->client_fd = client_fd;
+    s->curr_dir = NULL;
+    s->fp = NULL;
+    s->rw_filename = NULL;
+    s->next = NULL;
 
-    sessions[sessions_index++] = s;
-    return session_id;
+    if (session_list.count == 0) {
+        s->prev = NULL;
+
+        session_list.head = s;
+        session_list.tail = s;
+    } else {
+        s->prev = session_list.tail;
+        session_list.tail->next = s;
+        session_list.tail = s;
+    }
+
+    ++session_list.count;
+    return s->session_id;
 }
 
 const session *get_session(const size_t session_id)
 {
-    size_t i;
-    for (i = 0; i < sessions_index; ++i) {
-        if (sessions[i].session_id == session_id) {
-            return &sessions[i];
+    session *s;
+    for (s = session_list.head; s != NULL; s = s->next) {
+        if (s->session_id == session_id) {
+            return s;
         }
     }
-    return NULL;
+    return s;
 }
 
 const session *get_session_by_fd(int client_fd)
 {
-    size_t i;
-    for (i = 0; i < sessions_index; ++i) {
-        if (sessions[i].client_fd == client_fd) {
-            return &sessions[i];
+    session *s;
+    for (s = session_list.head; s != NULL; s = s->next) {
+        if (s->client_fd == client_fd) {
+            return s;
         }
     }
-    return NULL;
+    return s;
 }
 
 const session *session_change_dir(const size_t session_id, const size_t dir_len, const char *new_dir)
 {
-    size_t i;
+    session *s;
     char *dir;
-    for (i = 0; i < sessions_index; ++i) {
-        if (sessions[i].session_id == session_id) {
-            dir = (char *) realloc(sessions[i].curr_dir, dir_len + 1);
+    for (s = session_list.head; s != NULL; s = s->next) {
+        if (s->session_id == session_id) {
+            dir = (char *) realloc(s->curr_dir, dir_len + 1);
             if (dir == NULL) {
-                free(sessions[i].curr_dir);
-                sessions[i].curr_dir = NULL;
-                return &sessions[i];
+                free(s->curr_dir);
+                s->curr_dir = NULL;
+                return s;
             }
 
             strcpy(dir, new_dir);
-            sessions[i].curr_dir = dir;
-            return &sessions[i];
+            s->curr_dir = dir;
+            return s;
         }
     }
-    return NULL;
+    return s;
 }
 
 const session *session_set_fp(const size_t session_id, FILE *fp)
 {
-    size_t i;
-    for (i = 0; i < sessions_index; ++i) {
-        if (sessions[i].session_id == session_id) {
-            sessions[i].fp = fp;
-            return &sessions[i];
+    session *s;
+    for (s = session_list.head; s != NULL; s = s->next) {
+        if (s->session_id == session_id) {
+            s->fp = fp;
+            return s;
         }
     }
-    return NULL;
+    return s;
 }
 
 const session *session_set_filename(size_t session_id, char *filename)
 {
-    size_t i;
-    for (i = 0; i < sessions_index; ++i) {
-        if (sessions[i].session_id == session_id) {
-            sessions[i].rw_filename = filename;
-            return &sessions[i];
+    session *s;
+    for (s = session_list.head; s != NULL; s = s->next) {
+        if (s->session_id == session_id) {
+            s->rw_filename = filename;
+            return s;
         }
     }
-    return NULL;
+    return s;
 }
 
 const session *session_close_fp(const size_t session_id)
 {
-    size_t i;
-    for (i = 0; i < sessions_index; ++i) {
-        if (sessions[i].session_id == session_id) {
-            if (sessions[i].fp != NULL) {
-                fclose(sessions[i].fp);
-                sessions[i].fp = NULL;
+    session *s;
+    for (s = session_list.head; s != NULL; s = s->next) {
+        if (s->session_id == session_id) {
+            if (s->fp != NULL) {
+                fclose(s->fp);
+                s->fp = NULL;
             }
 
-            if (sessions[i].rw_filename != NULL) {
-                free(sessions[i].rw_filename);
-                sessions[i].rw_filename = NULL;
+            if (s->rw_filename != NULL) {
+                free(s->rw_filename);
+                s->rw_filename = NULL;
             }
-            return &sessions[i];
+            return s;
         }
     }
-    return NULL;
+    return s;
 }
 
 void close_session(const size_t session_id)
 {
-    size_t i, j;
-    for (i = 0; i < sessions_index; ++i) {
-        if (sessions[i].session_id == session_id) {
-            if (sessions[i].curr_dir) {
-                free(sessions[i].curr_dir);
+    session *s;
+    for (s = session_list.head; s != NULL; s = s->next) {
+        if (s->session_id == session_id) {
+            if (s->curr_dir) {
+                free(s->curr_dir);
             }
 
-            if (sessions[i].fp != NULL) {
-                fclose(sessions[i].fp);
+            if (s->fp != NULL) {
+                fclose(s->fp);
             }
-            if (sessions[i].rw_filename != NULL) {
-                free(sessions[i].rw_filename);
+            if (s->rw_filename != NULL) {
+                free(s->rw_filename);
             }
 
-            for (j = i; j < sessions_index - 1; ++j) {
-                sessions[j] = sessions[j + 1];
+            --session_list.count;
+
+            if (session_list.head == s && session_list.tail == s) {
+                session_list.head = NULL;
+                session_list.tail = NULL;
+            } else if (session_list.head == s) {
+                session_list.head = s->next;
+                s->next->prev = NULL;
+            } else if (session_list.tail == s) {
+                session_list.tail = s->prev;
+                s->prev->next = NULL;
+            } else {
+                s->prev->next = s->next;
+                s->next->prev = s->prev;
             }
-            sessions[--sessions_index] = empty_session;
+
+            free(s);
+            s = NULL;
             break;
         }
     }
@@ -157,20 +170,31 @@ void close_session(const size_t session_id)
 
 void close_sessions(void)
 {
-    size_t i;
-    for (i = 0; i < sessions_index; ++i) {
-        if (sessions[i].curr_dir) {
-            free(sessions[i].curr_dir);
-        }
+    session *s, *last;
 
-        if (sessions[i].fp != NULL) {
-            fclose(sessions[i].fp);
-        }
+    if (session_list.count >= 1) {
+        for (s = session_list.tail->prev; s != NULL; s = s->prev) {
+            last = s->next;
+            if (last->curr_dir) {
+                free(last->curr_dir);
+            }
 
-        if (sessions[i].rw_filename != NULL) {
-            free(sessions[i].rw_filename);
+            if (last->fp != NULL) {
+                fclose(last->fp);
+            }
+
+            if (last->rw_filename != NULL) {
+                free(last->rw_filename);
+            }
+
+            free(last);
         }
-        sessions[i] = empty_session;
     }
-    sessions_index = 0;
+
+    s = session_list.head;
+    free(s);
+
+    session_list.count = 0;
+    session_list.head = NULL;
+    session_list.tail = NULL;
 }

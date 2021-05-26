@@ -98,8 +98,6 @@ int main(int argc, char **argv)
     fds[0].fd = socket_fd;
     fds[0].events = POLLIN;
 
-    init_sessions();
-
     while (!kill_server) {
         printf("Awaiting commands...\n");
 

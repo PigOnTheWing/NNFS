@@ -6,15 +6,16 @@
 
 #define MAX_SESSIONS 128
 
-typedef struct {
+typedef struct session {
     size_t session_id;
     int client_fd;
     char *curr_dir;
     FILE *fp;
     char *rw_filename;
+    struct session *next;
+    struct session *prev;
 } session;
 
-void init_sessions(void);
 size_t create_session(int client_fd);
 const session *get_session(size_t session_id);
 const session *get_session_by_fd(int client_fd);
