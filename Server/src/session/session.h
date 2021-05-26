@@ -14,7 +14,7 @@ typedef struct {
     char *rw_filename;
 } session;
 
-void init_sessions();
+void init_sessions(void);
 size_t create_session(int client_fd);
 const session *get_session(size_t session_id);
 const session *get_session_by_fd(int client_fd);
@@ -23,6 +23,6 @@ const session *session_set_fp(size_t session_id, FILE *fp);
 const session *session_set_filename(size_t session_id, char *filename);
 const session *session_close_fp(size_t session_id);
 void close_session(size_t session_id);
-void close_sessions();
+void close_sessions(void);
 
 #endif //NNFS_SESSION_H

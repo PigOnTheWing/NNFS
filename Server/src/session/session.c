@@ -16,7 +16,7 @@ static const session empty_session = {
         .rw_filename = NULL
 };
 
-void init_sessions()
+void init_sessions(void)
 {
     size_t i;
     for (i = 0; i < MAX_SESSIONS; ++i) {
@@ -73,6 +73,7 @@ const session *session_change_dir(const size_t session_id, const size_t dir_len,
         if (sessions[i].session_id == session_id) {
             dir = (char *) realloc(sessions[i].curr_dir, dir_len + 1);
             if (dir == NULL) {
+                free(sessions[i].curr_dir);
                 sessions[i].curr_dir = NULL;
                 return &sessions[i];
             }
@@ -154,7 +155,7 @@ void close_session(const size_t session_id)
     }
 }
 
-void close_sessions()
+void close_sessions(void)
 {
     size_t i;
     for (i = 0; i < sessions_index; ++i) {

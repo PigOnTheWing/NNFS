@@ -60,7 +60,7 @@ static void handle_default_change_dir(const session *s, response *resp)
 static void handle_connect(const session *s, request *req, response *resp)
 {
     size_t path_len;
-    char *dir_path, *full_path;
+    char *dir_path, *full_path = NULL;
     DIR *dir;
 
     if (req->header.payload_len == 0) {
@@ -94,13 +94,12 @@ static void handle_connect(const session *s, request *req, response *resp)
         goto finish_resp;
     }
 
-    free(full_path);
-
     resp->header.code = OP_OK;
     finish_resp:
     resp->header.session_id = s->session_id;
     resp->header.payload_len = 0;
     closedir(dir);
+    free(full_path);
 }
 
 static void handle_change_dir(const session *s, request *req, response *resp)
@@ -143,6 +142,7 @@ static void handle_change_dir(const session *s, request *req, response *resp)
     s = session_change_dir(s->session_id, path_len, full_path);
     if (s->curr_dir == NULL) {
         resp->header.code = OP_FAILED;
+        closedir(dir);
         goto finish_resp;
     }
 
@@ -186,6 +186,7 @@ static void handle_list_dir_contents(const session *s, response *resp)
     resp->header.code = OP_OK;
     resp->header.session_id = s->session_id;
     resp->header.payload_len = content_len + 1;
+    closedir(dir);
 }
 
 static void handle_close_session(const session *s, response *resp)
@@ -211,7 +212,7 @@ static void handle_read_init(const session *s, request *req, response *resp)
     if (rel_path[0] == '/') {
         full_path_size = strlen(rel_path) + 1;
         full_path = malloc(full_path_size);
-        if (full_path ==NULL) {
+        if (full_path == NULL) {
             resp->header.code = OP_FAILED;
             goto fail;
         }
@@ -219,7 +220,7 @@ static void handle_read_init(const session *s, request *req, response *resp)
         strcpy(full_path, rel_path);
     } else {
         full_path = get_real_path(s->curr_dir, rel_path);
-        if (full_path ==NULL) {
+        if (full_path == NULL) {
             resp->header.code = OP_FAILED;
             goto fail;
         }
@@ -231,6 +232,7 @@ static void handle_read_init(const session *s, request *req, response *resp)
         } else {
             resp->header.code = OP_FAILED;
         }
+        free(full_path);
         goto fail;
     }
 
@@ -261,13 +263,13 @@ static void handle_read_next(const session *s, response *resp)
     fp = s->fp;
     bytes_read = fread(resp->payload, 1, MAX_PAYLOAD_LENGTH, fp);
     if (bytes_read != MAX_PAYLOAD_LENGTH) {
+        s = session_close_fp(s->session_id);
+        fp = NULL;
+
         if (!feof(fp)) {
             resp->header.code = OP_FAILED;
             goto fail;
         }
-
-        s = session_close_fp(s->session_id);
-        fp = NULL;
 
         resp->header.code = OP_LAST;
     } else {
@@ -298,7 +300,7 @@ static void handle_write_init(const session *s, request *req, response *resp)
     if (rel_path[0] == '/') {
         full_path_size = strlen(rel_path) + 1;
         full_path = malloc(full_path_size);
-        if (full_path ==NULL) {
+        if (full_path == NULL) {
             resp->header.code = OP_FAILED;
             goto finish_resp;
         }
@@ -323,6 +325,7 @@ static void handle_write_init(const session *s, request *req, response *resp)
         } else {
             resp->header.code = OP_FAILED;
         }
+        free(full_path);
         goto finish_resp;
     }
 

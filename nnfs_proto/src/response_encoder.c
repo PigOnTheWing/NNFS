@@ -20,6 +20,7 @@ size_t encode_response(response *r, unsigned char **packet_ptr_out)
         *packet_ptr_out = NULL;
         return 0;
     }
+
     memcpy(packet_ptr, encoder.header_bytes, HEADER_SIZE);
 
     payload_ptr = packet_ptr + HEADER_SIZE;
