@@ -263,15 +263,16 @@ static void handle_read_next(const session *s, response *resp)
     fp = s->fp;
     bytes_read = fread(resp->payload, 1, MAX_PAYLOAD_LENGTH, fp);
     if (bytes_read != MAX_PAYLOAD_LENGTH) {
-        s = session_close_fp(s->session_id);
-        fp = NULL;
-
         if (!feof(fp)) {
             resp->header.code = OP_FAILED;
+            s = session_close_fp(s->session_id);
+            fp = NULL;
             goto fail;
         }
 
         resp->header.code = OP_LAST;
+        s = session_close_fp(s->session_id);
+        fp = NULL;
     } else {
         s = session_set_fp(s->session_id, fp);
         resp->header.code = OP_PART;
