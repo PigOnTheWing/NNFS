@@ -46,7 +46,11 @@ int send_and_receive(int socket_fd, request *req, response *resp)
         return -1;
     }
 
-    decode_response(response_buffer, resp);
+    if (!decode_response(response_buffer, resp)) {
+        printf("Failed to decode response\n");
+        return -1;
+    }
+
     return 0;
 }
 

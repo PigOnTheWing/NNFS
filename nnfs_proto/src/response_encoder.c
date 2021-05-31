@@ -16,7 +16,7 @@ size_t encode_response(response *r, unsigned char **packet_ptr_out)
     header_encoder encoder = { .header = r->header };
     unsigned char *packet_ptr, *payload_ptr;
 
-    if ((packet_ptr = malloc(packet_len)) == NULL) {
+    if (p_len > MAX_PAYLOAD_LENGTH || (packet_ptr = malloc(packet_len)) == NULL) {
         *packet_ptr_out = NULL;
         return 0;
     }
@@ -40,6 +40,10 @@ size_t decode_response(unsigned char *packet_ptr_in, response *r)
     r->header = decoder.header;
 
     payload_len = r->header.payload_len;
+    if (payload_len > MAX_PAYLOAD_LENGTH) {
+        return 0;
+    }
+
     payload_ptr = packet_ptr_in + HEADER_SIZE;
     memcpy(r->payload, payload_ptr, payload_len);
 

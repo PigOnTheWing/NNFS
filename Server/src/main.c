@@ -180,7 +180,12 @@ int main(int argc, char **argv)
                         break;
                     }
 
-                    decode_request(request_buffer, &req);
+                    if (!decode_request(request_buffer, &req)) {
+                        printf("Failed to decode request\n");
+                        close_fd = true;
+                        break;
+                    }
+
                     s = get_client_session(fds[i].fd, &req);
                     if (s == NULL) {
                         printf("Client session doesn't exit\n");
